@@ -9,10 +9,15 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.text.Font;
 import model.Answer;
+import model.Cell;
 import model.CellState;
+import model.ServerShot;
+import server.IRemote;
 
 import java.io.*;
-import java.net.Socket;
+import java.rmi.Naming;
+import java.rmi.NotBoundException;
+import java.rmi.RemoteException;
 
 public class Controller {
     @FXML
@@ -46,16 +51,13 @@ public class Controller {
     private int playerScore;
     private int enemyScore;
 
-    private static ObjectInputStream in;
-    private static ObjectOutputStream out;
+    private IRemote remote;
 
     @FXML
-    public void initialize() {
+    public void initialize() throws NotBoundException {
         try {
-            Socket socket = new Socket("localhost", 8080);
-            out = new ObjectOutputStream(socket.getOutputStream());
-            in = new ObjectInputStream(socket.getInputStream());
-
+            System.setProperty("java.rmi.server.hostname", "127.0.0.1");
+            remote = (IRemote) Naming.lookup("rmi://localhost:8080/IRemote");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -65,31 +67,33 @@ public class Controller {
         sizeLabel.setText((int)sizeSlider.getValue() + "");
     }
 
-    public void startBattle() throws IOException, ClassNotFoundException {
+    public void startBattle() throws RemoteException {
         gameOverPane.setVisible(false);
         N = (int)sizeSlider.getValue();
+        initializePlayerFields(remote.initializeFields(N));
 
-        System.out.print("Отправка N... ");
-        out.writeInt(N);
-        out.flush();
-        System.out.println("Отправлено " + N);
+        playerShipsCount = remote.getShipsCount();
+        enemyShipsCount = playerShipsCount;
+        playerShips.setText(playerShipsCount + "");
+        enemyShips.setText(enemyShipsCount + "");
 
-        initializePlayerFields();
+        playerScore = 0;
+        enemyScore = 0;
+        playerScoreLabel.setText("0");
+        enemyScoreLabel.setText("0");
 
-        System.out.print("Определение первого хода... ");
-        boolean isPlayerFirst = in.readBoolean();
-        System.out.println(isPlayerFirst ? "Игрок ходит первым" : "Противник ходит первым");
+        boolean isPlayerFirst = remote.isPlayerFirst();
         log.setText(isPlayerFirst ? "Вы ходите первым" : "Противник ходит первым");
 
-        if (!isPlayerFirst) receiveBotShoot(Answer.MISSED);
+        if (!isPlayerFirst) receiveServerShoot();
     }
 
-    private void initializePlayerFields() throws IOException, ClassNotFoundException {
+    private void initializePlayerFields(CellState[][] playerCellStates) {
         playerCells = new CellView[N][N];
         enemyCells = new CellView[N][N];
         leftPane.getChildren().clear();
         rightPane.getChildren().clear();
-        leftPane.getChildren().add(initializePlayerGrid());
+        leftPane.getChildren().add(initializePlayerGrid(playerCellStates));
         rightPane.getChildren().add(initializeEnemyGrid());
     }
 
@@ -115,29 +119,16 @@ public class Controller {
         return gridPane;
     }
 
-    private GridPane initializePlayerGrid() throws IOException, ClassNotFoundException {
+    private GridPane initializePlayerGrid(CellState[][] playerCellStates) {
         double cellSize = 440.0 / (N + 1);
         GridPane gridPane = initializeGrid(cellSize);
 
-        for (int x = 0; x < N; x++)
+        for (int x = 0; x < N; x++) {
             for (int y = 0; y < N; y++) {
-                System.out.print("Чтение CellState... ");
-                playerCells[x][y] = new CellView(x, y, cellSize - 1, (CellState) in.readObject());
+                playerCells[x][y] = new CellView(x, y, cellSize - 1, playerCellStates[x][y]);
                 gridPane.add(playerCells[x][y], x + 1, y + 1);
-                System.out.println("Получено");
             }
-        System.out.print("Чтение playerShipsCount... ");
-        playerShipsCount = in.readInt();
-        System.out.println("Получено " + playerShipsCount);
-
-        enemyShipsCount = playerShipsCount;
-        playerShips.setText(playerShipsCount + "");
-        enemyShips.setText(enemyShipsCount + "");
-
-        playerScore = 0;
-        enemyScore = 0;
-        playerScoreLabel.setText("0");
-        enemyScoreLabel.setText("0");
+        }
         return gridPane;
     }
 
@@ -145,150 +136,115 @@ public class Controller {
         double cellSize = 440.0 / (N + 1);
         GridPane gridPane = initializeGrid(cellSize);
 
-        for (int x = 0; x < N; x++) {
-            for (int y = 0; y < N; y++) {
-                CellView enemyCell = new CellView(x, y, cellSize - 1, CellState.UNKNOWN);
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < N; j++) {
+                CellView enemyCell = new CellView(i, j, cellSize - 1, CellState.UNKNOWN);
 
                 enemyCell.setOnMouseClicked(event -> {
-                        try {
-                            System.out.print("Отправка X... ");
-                            out.writeInt(enemyCell.X());
-                            System.out.println("Отправлено " + enemyCell.X());
-                            System.out.print("Отправка Y... ");
-                            out.writeInt(enemyCell.Y());
-                            System.out.println("Отправлено " + enemyCell.Y());
-                            out.flush();
+                    try {
+                        int x = enemyCell.X();
+                        int y = enemyCell.Y();
+                        Answer answer = remote.sendShot(x, y);
+                        log.appendText("\nВы: " + (char) (1040 + x) + (y + 1) + " - ");
 
-                            log.appendText("\nВы: " + (char)(1040 + enemyCell.X()) + (enemyCell.Y() + 1) + " - ");
-                            System.out.print("Чтение Answer... ");
-                            Answer answer = (Answer) in.readObject();
-                            System.out.println("Получено " + answer);
+                        switch (answer) {
+                            case MISSED:
+                                enemyCell.setState(CellState.MISSED);
+                                log.appendText("Промах");
+                                playerScore++;
+                                playerScoreLabel.setText(playerScore + "");
+                                break;
+                            case DAMAGED:
+                                enemyCell.setState(CellState.DESTROYED);
+                                playerScore++;
+                                playerScoreLabel.setText(playerScore + "");
+                                log.appendText("Попадание");
+                                break;
+                            case DESTROYED: {
+                                enemyCell.setState(CellState.DESTROYED);
+                                log.appendText("Корабль уничтожен");
+                                enemyShipsCount--;
+                                enemyShips.setText(enemyShipsCount + "");
 
-                            switch (answer) {
-                                case MISSED:
-                                    enemyCell.setState(CellState.MISSED);
-                                    log.appendText("Промах");
+                                Cell[] emptyCells = remote.destroyShip(x, y, false);
+
+                                for (Cell cells : emptyCells) {
+                                    enemyCells[cells.getX()][cells.getY()].setState(CellState.MISSED);
                                     playerScore++;
                                     playerScoreLabel.setText(playerScore + "");
-                                    break;
-                                case DAMAGED:
-                                    enemyCell.setState(CellState.DESTROYED);
-                                    playerScore++;
-                                    playerScoreLabel.setText(playerScore + "");
-                                    log.appendText("Попадание");
-                                    break;
-                                case DESTROYED: {
-                                    enemyCell.setState(CellState.DESTROYED);
-                                    log.appendText("Корабль уничтожен");
-                                    enemyShipsCount--;
-                                    enemyShips.setText(enemyShipsCount + "");
-
-                                    System.out.print("Чтение n... ");
-                                    int n = in.readInt();
-                                    System.out.println("Получено " + n);
-                                    for (int i = 0; i < n; i++) {
-                                        System.out.print("Чтение r... ");
-                                        int r = in.readInt();
-                                        System.out.println("Получено " + r);
-
-                                        System.out.print("Чтение c... ");
-                                        int c = in.readInt();
-                                        System.out.println("Получено " + c);
-
-                                        enemyCells[r][c].setState(CellState.MISSED);
-                                        enemyCells[r][c].setOnMouseClicked(null);
-
-                                        playerScore++;
-                                        playerScoreLabel.setText(playerScore + "");
-                                    }
-
-                                    if (enemyShipsCount == 0) {
-                                        gameOverLabel.setText("Вы победили");
-                                        gameOverPane.setVisible(true);
-                                    }
-                                    break;
                                 }
-                            }
-                            enemyCell.setOnMouseClicked(null);
-                            receiveBotShoot(answer);
 
-                        } catch (IOException | ClassNotFoundException e) {
-                            e.printStackTrace();
+                                if (enemyShipsCount == 0) {
+                                    gameOverLabel.setText("Вы победили");
+                                    gameOverPane.setVisible(true);
+                                }
+                                break;
+                            }
                         }
+                        enemyCell.setOnMouseClicked(null);
+
+                        if (answer == Answer.MISSED) {
+                            receiveServerShoot();
+                        }
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
                 });
-                enemyCells[x][y] = enemyCell;
-                gridPane.add(enemyCell, x + 1, y + 1);
+                enemyCells[i][j] = enemyCell;
+                gridPane.add(enemyCell, i + 1, j + 1);
             }
         }
         return gridPane;
     }
 
 
-    private void receiveBotShoot(Answer answer) throws IOException, ClassNotFoundException {
-        if (answer == Answer.MISSED) {
-            do {
-                System.out.print("Чтение x... ");
-                int x = in.readInt();
-                System.out.println("Получено " + x);
+    private void receiveServerShoot() throws RemoteException {
+        Answer answer;
+        do {
+            ServerShot shot = remote.receiveShot();
+            int x = shot.getX();
+            int y = shot.getY();
+            answer = shot.getAnswer();
 
-                System.out.print("Чтение y... ");
-                int y = in.readInt();
-                System.out.println("Получено " + y);
+            CellView playerCell = playerCells[x][y];
+            log.appendText("\nПротивник: " + (char)(1040 + x) + (y + 1) + " - ");
 
-                CellView playerCell = playerCells[x][y];
-                log.appendText("\nПротивник: " + (char)(1040 + x) + (y + 1) + " - ");
+            switch (answer) {
+                case MISSED:
+                    playerCell.setState(CellState.MISSED);
+                    log.appendText("Промах");
+                    enemyScore++;
+                    enemyScoreLabel.setText(enemyScore + "");
+                    break;
+                case DAMAGED:
+                    playerCell.setState(CellState.DESTROYED);
+                    log.appendText("Попадание");
+                    enemyScore++;
+                    enemyScoreLabel.setText(enemyScore + "");
+                    break;
+                case DESTROYED: {
+                    playerCell.setState(CellState.DESTROYED);
+                    log.appendText("Корабль уничтожен");
 
-                System.out.print("Чтение Answer... ");
-                answer = (Answer) in.readObject();
-                System.out.println("Получено " + answer);
+                    playerShipsCount--;
+                    playerShips.setText(playerShipsCount + "");
 
-                switch (answer) {
-                    case MISSED:
-                        playerCell.setState(CellState.MISSED);
-                        log.appendText("Промах");
+                    Cell[] emptyCells = remote.destroyShip(x, y, true);
+
+                    for (Cell cells: emptyCells) {
+                        playerCells[cells.getX()][cells.getY()].setState(CellState.MISSED);
                         enemyScore++;
                         enemyScoreLabel.setText(enemyScore + "");
-                        break;
-                    case DAMAGED:
-                        playerCell.setState(CellState.DESTROYED);
-                        log.appendText("Попадание");
-                        enemyScore++;
-                        enemyScoreLabel.setText(enemyScore + "");
-                        break;
-                    case DESTROYED: {
-                        playerCell.setState(CellState.DESTROYED);
-                        log.appendText("Корабль уничтожен");
-
-                        playerShipsCount--;
-                        playerShips.setText(playerShipsCount + "");
-
-                        System.out.print("Чтение n... ");
-                        int n = in.readInt();
-                        System.out.println("Получено " + n);
-
-                        for (int i = 0; i < n; i++) {
-                            System.out.print("Чтение x... ");
-                            x = in.readInt();
-                            System.out.println("Получено " + x);
-
-                            System.out.print("Чтение y... ");
-                            y = in.readInt();
-                            System.out.println("Получено " + y);
-                            playerCells[x][y].setState(CellState.MISSED);
-
-                            enemyScore++;
-                            enemyScoreLabel.setText(enemyScore + "");
-                        }
-
-                        if (playerShipsCount == 0) {
-                            gameOverLabel.setText("Вы проиграли");
-                            gameOverPane.setVisible(true);
-                        }
-                        break;
                     }
+
+                    if (playerShipsCount == 0) {
+                        gameOverLabel.setText("Вы проиграли");
+                        gameOverPane.setVisible(true);
+                    }
+                    break;
                 }
             }
-            while (answer != Answer.MISSED && playerShipsCount > 0);
         }
+        while (answer != Answer.MISSED && playerShipsCount > 0);
     }
 }

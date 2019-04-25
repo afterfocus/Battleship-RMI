@@ -1,6 +1,8 @@
 package model;
 
-public class Cell implements Comparable {
+import java.io.Serializable;
+
+public class Cell implements Comparable, Serializable {
     private int y;
     private int x;
     private boolean isChecked;

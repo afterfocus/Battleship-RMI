@@ -13,7 +13,6 @@ class CellView extends ImageView {
         this.x = x;
         this.y = y;
         setState(state);
-
         setFitHeight(size);
         setFitWidth(size);
         setX(3.0);
