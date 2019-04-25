@@ -43,6 +43,7 @@ public class Controller {
     @FXML
     Label enemyScoreLabel;
 
+    private int gameID;
     private int N;
     private CellView[][] playerCells;
     private CellView[][] enemyCells;
@@ -70,9 +71,10 @@ public class Controller {
     public void startBattle() throws RemoteException {
         gameOverPane.setVisible(false);
         N = (int)sizeSlider.getValue();
-        initializePlayerFields(remote.initializeFields(N));
+        gameID = remote.createGame();
+        initializePlayerFields(remote.initializeFields(gameID, N));
 
-        playerShipsCount = remote.getShipsCount();
+        playerShipsCount = remote.getShipsCount(gameID);
         enemyShipsCount = playerShipsCount;
         playerShips.setText(playerShipsCount + "");
         enemyShips.setText(enemyShipsCount + "");
@@ -82,7 +84,7 @@ public class Controller {
         playerScoreLabel.setText("0");
         enemyScoreLabel.setText("0");
 
-        boolean isPlayerFirst = remote.isPlayerFirst();
+        boolean isPlayerFirst = remote.isPlayerFirst(gameID);
         log.setText(isPlayerFirst ? "Вы ходите первым" : "Противник ходит первым");
 
         if (!isPlayerFirst) receiveServerShoot();
@@ -144,7 +146,7 @@ public class Controller {
                     try {
                         int x = enemyCell.X();
                         int y = enemyCell.Y();
-                        Answer answer = remote.sendShot(x, y);
+                        Answer answer = remote.sendShot(gameID, x, y);
                         log.appendText("\nВы: " + (char) (1040 + x) + (y + 1) + " - ");
 
                         switch (answer) {
@@ -166,7 +168,7 @@ public class Controller {
                                 enemyShipsCount--;
                                 enemyShips.setText(enemyShipsCount + "");
 
-                                Cell[] emptyCells = remote.destroyShip(x, y, false);
+                                Cell[] emptyCells = remote.destroyShip(gameID, x, y, false);
 
                                 for (Cell cells : emptyCells) {
                                     enemyCells[cells.getX()][cells.getY()].setState(CellState.MISSED);
@@ -201,7 +203,7 @@ public class Controller {
     private void receiveServerShoot() throws RemoteException {
         Answer answer;
         do {
-            ServerShot shot = remote.receiveShot();
+            ServerShot shot = remote.receiveShot(gameID);
             int x = shot.getX();
             int y = shot.getY();
             answer = shot.getAnswer();
@@ -229,7 +231,7 @@ public class Controller {
                     playerShipsCount--;
                     playerShips.setText(playerShipsCount + "");
 
-                    Cell[] emptyCells = remote.destroyShip(x, y, true);
+                    Cell[] emptyCells = remote.destroyShip(gameID, x, y, true);
 
                     for (Cell cells: emptyCells) {
                         playerCells[cells.getX()][cells.getY()].setState(CellState.MISSED);

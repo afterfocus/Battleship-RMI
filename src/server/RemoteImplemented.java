@@ -9,12 +9,8 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
 
 public class RemoteImplemented extends UnicastRemoteObject implements IRemote {
-    private int N;
-    private Field playerField;
-    private Field enemyField;
-    private Random R = new Random();
-    private ArrayList<Cell> shipCellsFound = new ArrayList<>();
-
+    private int idCounter = -1;
+    private Map<Integer, Game> games = new HashMap<>();
 
     public static void main(String[] args) {
         try {
@@ -35,134 +31,33 @@ public class RemoteImplemented extends UnicastRemoteObject implements IRemote {
     private RemoteImplemented() throws RemoteException {
     }
 
-    @Override
-    public CellState[][] initializeFields(int N) {
-        this.N = N;
-        playerField = new Field(N);
-        enemyField = new Field(N);
-
-        CellState[][] playerCells = new CellState[N][N];
-        for (int x = 0; x < N; x++)
-            for (int y = 0; y < N; y++)
-                playerCells[x][y] = playerField.getState(x, y);
-        return playerCells;
+    public int createGame() {
+        idCounter++;
+        games.put(idCounter, new Game());
+        return idCounter;
     }
 
-    @Override
-    public int getShipsCount() {
-        return playerField.getShipsCount();
+    public CellState[][] initializeFields(int gameID, int N) {
+        return games.get(gameID).initializeFields(N);
     }
 
-    @Override
-    public boolean isPlayerFirst() {
-        return R.nextBoolean();
+    public int getShipsCount(int gameID) {
+        return games.get(gameID).getShipsCount();
     }
 
-    @Override
-    public Answer sendShot(int x, int y) {
-        return enemyField.makeShoot(x, y);
+    public boolean isPlayerFirst(int gameID) {
+        return games.get(gameID).isPlayerFirst();
     }
 
-    @Override
-    public ServerShot receiveShot() {
-        Answer answer;
-        int x, y;
-        if (shipCellsFound.size() == 0) {
-            do {
-                x = R.nextInt(N);
-                y = R.nextInt(N);
-                answer = playerField.makeShoot(x, y);
-            } while (answer == Answer.INVALID);
-        } else {
-            Cell first = shipCellsFound.get(0);
-            Cell last = shipCellsFound.get(shipCellsFound.size() - 1);
-
-            do {
-                if (shipCellsFound.size() > 1) {
-                    if (isShipHorizontal()) {
-                        if (first.getX() - 1 >= 0 && playerField.getCell(first.getX() - 1, first.getY()).isNotChecked()) {
-                            x = first.getX() - 1;
-                            y = first.getY();
-                        } else {
-                            x = last.getX() + 1;
-                            y = last.getY();
-                        }
-                    } else {
-                        if (first.getY() - 1 >= 0 && playerField.getCell(first.getX(), first.getY() - 1).isNotChecked()) {
-                            x = first.getX();
-                            y = first.getY() - 1;
-                        } else {
-                            x = last.getX();
-                            y = last.getY() + 1;
-                        }
-                    }
-                } else {
-                    switch (R.nextInt(4)) {
-                        case 0: {
-                            x = first.getX() - 1;
-                            y = first.getY();
-                            break;
-                        }
-                        case 1: {
-                            x = first.getX() + 1;
-                            y = first.getY();
-                            break;
-                        }
-                        case 2: {
-                            x = first.getX();
-                            y = first.getY() - 1;
-                            break;
-                        }
-                        default: {
-                            x = first.getX();
-                            y = first.getY() + 1;
-                            break;
-                        }
-                    }
-                }
-                answer = playerField.makeShoot(x, y);
-            } while (answer == Answer.INVALID);
-        }
-        playerField.getCell(x, y).setChecked(true);
-
-        if (answer == Answer.DESTROYED) {
-            shipCellsFound.clear();
-        } else if (answer == Answer.DAMAGED) {
-            shipCellsFound.add(playerField.getCell(x, y));
-            Collections.sort(shipCellsFound);
-        }
-        return new ServerShot(x, y, answer);
+    public Answer sendShot(int gameID, int x, int y) {
+        return games.get(gameID).sendShot(x, y);
     }
 
-    @Override
-    public boolean isShipHorizontal() {
-        if (shipCellsFound.size() > 1) {
-            return shipCellsFound.get(0).getY() == shipCellsFound.get(1).getY();
-        } else return false;
+    public ServerShot receiveShot(int gameID) {
+        return games.get(gameID).receiveShot();
     }
 
-    @Override
-    public Cell[] destroyShip(int x, int y, boolean isPlayerShip) {
-        Cell[] emptyCells = isPlayerShip ? playerField.destroyShip(x, y) : enemyField.destroyShip(x, y);
-        for (Cell emptyCell : emptyCells) {
-            emptyCell.setState(CellState.MISSED);
-            emptyCell.setChecked(true);
-        }
-        return emptyCells;
+    public Cell[] destroyShip(int gameID, int x, int y, boolean isPlayerShip) {
+        return games.get(gameID).destroyShip(x, y, isPlayerShip);
     }
-
-    /*
-    private void printField(Field field) {
-        for (int x = 0; x < N; x++) {
-            for (int y = 0; y < N; y++) {
-                switch (field.getCell(y, x).getState()) {
-                    case MISSED: System.out.print(".(" + (field.getCell(y, x).isChecked() ? "+)  " : "-)  ")); break;
-                    case DESTROYED: System.out.print("X(" + (field.getCell(y, x).isChecked() ? "+)  " : "-)  ")); break;
-                    case OCCUPIED: System.out.print("O(" + (field.getCell(y, x).isChecked() ? "+)  " : "-)  ")); break;
-                    case EMPTY: System.out.print(" (" + (field.getCell(y, x).isChecked() ? "+)  " : "-)  ")); break;
-                }
-            }
-            System.out.println();
-        }
-    }*/
 }

@@ -9,11 +9,11 @@ import java.rmi.Remote;
 import java.rmi.RemoteException;
 
 public interface IRemote extends Remote {
-    CellState[][] initializeFields(int N) throws RemoteException;
-    int getShipsCount() throws RemoteException;
-    boolean isPlayerFirst() throws RemoteException;
-    Answer sendShot(int x, int y) throws RemoteException;
-    ServerShot receiveShot() throws RemoteException;
-    boolean isShipHorizontal() throws RemoteException;
-    Cell[] destroyShip(int x, int y, boolean isPlayerShip) throws RemoteException;
+    int createGame() throws RemoteException;
+    CellState[][] initializeFields(int gameID, int N) throws RemoteException;
+    int getShipsCount(int gameID) throws RemoteException;
+    boolean isPlayerFirst(int gameID) throws RemoteException;
+    Answer sendShot(int gameID, int x, int y) throws RemoteException;
+    ServerShot receiveShot(int gameID) throws RemoteException;
+    Cell[] destroyShip(int gameID, int x, int y, boolean isPlayerShip) throws RemoteException;
 }
